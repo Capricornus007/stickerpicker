@@ -1,0 +1,8 @@
+{
+  "packs": [
+    "in_BCDGDC_by_NaiDrawBot.json",
+    "ukuku1_2.json",
+    "ArcaeaLinkPlay.json"
+  ],
+  "homeserver_url": "https://matrix-client.matrix.org"
+}
