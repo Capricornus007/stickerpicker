@@ -2,7 +2,17 @@
   "packs": [
     "in_BCDGDC_by_NaiDrawBot.json",
     "ukuku1_2.json",
-    "ArcaeaLinkPlay.json"
+    "ArcaeaLinkPlay.json",
+    "Archwizard_pack.json",
+    "CacheCI.json",
+    "fuckgfwnewbie.json",
+    "suzumi_bili_2.json",
+    "NekoTempest.json",
+    "Qing_by_NaiDrawBot.json",
+    "Togawa_Sakiko_1b.json",
+    "X264WebmPack.json",
+    "b675aff8_by_fStikBot.json",
+    "kirinfav_by_favorite_stickers_bot.json"
   ],
   "homeserver_url": "https://matrix-client.matrix.org"
 }
