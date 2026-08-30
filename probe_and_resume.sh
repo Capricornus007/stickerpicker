@@ -15,9 +15,15 @@ if [ "$TG" -eq 0 ] 2>/dev/null; then
   exit 0
 fi
 
-# 閘門二:Matrix 媒體配額
-head -c 76800 /dev/urandom > /tmp/quota-probe.bin
+# 閘門二:Matrix token 有效性 → 媒體配額
 TOKEN=$(python3 -c "import json;print(json.load(open('config.json'))['access_token'])")
+WHO=$(curl -s -o /tmp/whoami-resp.json -w '%{http_code}' --max-time 30 \
+  "https://matrix.org/_matrix/client/v3/account/whoami" -H "Authorization: Bearer $TOKEN")
+if [ "$WHO" != "200" ]; then
+  echo "TOKEN_DEAD（access token 失效，HTTP $WHO — 需要使用者提供新 token）"
+  exit 0
+fi
+head -c 76800 /dev/urandom > /tmp/quota-probe.bin
 CODE=$(curl -s -o /tmp/quota-probe-resp.json -w '%{http_code}' --max-time 60 -X POST \
   "https://matrix.org/_matrix/media/v3/upload?filename=quota-probe.bin" \
   -H "Authorization: Bearer $TOKEN" \

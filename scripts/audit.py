@@ -91,7 +91,7 @@ def local_audit():
 
 
 def media_audit(all_media, count):
-    cfg = json.load(open(os.path.join(os.path.dirname(SP), 'config.json')))
+    cfg = json.load(open(os.path.join(ROOT, 'config.json')))
     hs = cfg['homeserver'].rstrip('/')
     sample = random.sample(sorted(all_media.items()), min(count, len(all_media)))
     import urllib.request
