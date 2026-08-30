@@ -20,9 +20,14 @@ for lp in ['20260830.1459.log', '20260830-mopup.log']:
     for m in re.finditer(r'Failed to import (\S+),', text):
         failed.add(m.group(1))
 for short in sorted(holes) + sorted(failed - set(holes)):
+    # Quarantine: b675aff8 (Strongh♂lds) downloads have twice killed the Telethon
+    # connection mid-pack; run it alone in a dedicated process, never in a batch.
+    if short == 'b675aff8_by_fStikBot':
+        continue
     print(short, end='\n')
 EOF
 )
+HOLES=$(echo "$HOLES" | sed '/^$/d')
 
 if [ -z "$HOLES" ]; then
   echo "沒有洞，全部完整。"
