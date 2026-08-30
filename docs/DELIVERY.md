@@ -229,7 +229,7 @@ The repo ships with a local `.venv`. Python dependencies are `aiohttp`, `yarl`, 
 
 - GIF 動畫在 Element 全平台(Web/Desktop/Android/iOS)都會播;
 - animated WebP 在 Element Android 不支援(element-android#2695);
-- ffmpeg 9 的 libvpx 已移除 VP8 alpha 編碼,「webm 帶透明」此路不通。
+- ffmpeg 9 的 libvpx 預設 VP8 alpha 編碼會因 `auto-alt-ref` 拒絕啟用、解碼與瀏覽器支援亦殘缺(詳見 `PATCHES.en.md`),「webm 帶透明」此路不通。
 
 **`webm_thumbnail()`(84–97 行)**:有 ffmpeg 時以 `-frames:v 1 -f image2pipe -vcodec png` 抽第一幀;無 ffmpeg 或失敗回傳 `None`。呼叫端(`add_thumbnails`)在 `None` 時改用 `EMPTY_THUMBNAIL`(37–40 行預生成的 128×128 全透明 PNG),**影片貼圖縮圖永不致炸**。
 
@@ -243,7 +243,7 @@ The repo ships with a local `.venv`. Python dependencies are `aiohttp`, `yarl`, 
 
 **English summary (4.1)**
 
-`util.py` adds the conversion layer. `find_lottieconverter()` resolves the binary from `LOTTIECONVERTER`, `PATH`, or `~/.local/bin/lottieconverter`. `parse_tgs()` gunzips the Lottie JSON for width/height/framerate (defaults 512/512/30). `convert_tgs()` scales to at most 256px on the long side, caps fps at 25, and shells out to `lottieconverter <src> <out> gif <WxH> <fps>` in a temp dir, raising a stderr-carrying `RuntimeError` on failure (the caller skips just that sticker). GIF was chosen because it animates on every Element platform, whereas animated WebP is unsupported on Element Android (element-android#2695) and ffmpeg 9's libvpx dropped VP8 alpha encoding, killing transparent WebM. `webm_thumbnail()` extracts a first-frame PNG via ffmpeg or returns `None`, in which case a pre-generated transparent 128×128 PNG placeholder is used. `make_sticker()` gained a `mimetype` parameter (keeping the Element iOS thumbnail hack), and `add_thumbnails()` now skips stickers whose raw data is absent (already uploaded in a previous run), falls back to the ffmpeg/WebM/placeholder chain for undecodable EBML data, and writes 128px PNGs named after the mxc media ID.
+`util.py` adds the conversion layer. `find_lottieconverter()` resolves the binary from `LOTTIECONVERTER`, `PATH`, or `~/.local/bin/lottieconverter`. `parse_tgs()` gunzips the Lottie JSON for width/height/framerate (defaults 512/512/30). `convert_tgs()` scales to at most 256px on the long side, caps fps at 25, and shells out to `lottieconverter <src> <out> gif <WxH> <fps>` in a temp dir, raising a stderr-carrying `RuntimeError` on failure (the caller skips just that sticker). GIF was chosen because it animates on every Element platform, whereas animated WebP is unsupported on Element Android (element-android#2695) and ffmpeg 9's libvpx refuses VP8 alpha encoding out of the box (auto-alt-ref) and WebM alpha decode/browser support is broken anyway (see PATCHES.en.md), killing transparent WebM. `webm_thumbnail()` extracts a first-frame PNG via ffmpeg or returns `None`, in which case a pre-generated transparent 128×128 PNG placeholder is used. `make_sticker()` gained a `mimetype` parameter (keeping the Element iOS thumbnail hack), and `add_thumbnails()` now skips stickers whose raw data is absent (already uploaded in a previous run), falls back to the ffmpeg/WebM/placeholder chain for undecodable EBML data, and writes 128px PNGs named after the mxc media ID.
 
 ### 4.2 `sticker/lib/matrix.py` — `upload()` 重試狀態機
 
@@ -521,7 +521,7 @@ Key limitations: (1) the matrix.org free-tier media quota (~500MB/day, ~2GB/28d)
 *A1.* 舊版會——空 `stickers` 陣列的包讓 `NavBarItem` 取 `pack.stickers[0].url` 時炸 render(見第 5 節)。本 fork 已修;若仍白屏,確認部署位置已更新(面板 Settings → Reload 強制重抓),並檢查 console 是否指向舊版程式碼。
 
 **Q2. 為什麼動態貼圖變成 GIF,不是 webp 或 webm?**
-*A2.* GIF 是唯一在 Element 全平台都會動的格式:Element Android 不支援 animated WebP(element-android#2695),而 ffmpeg 9 的 libvpx 已移除 VP8 alpha 編碼、webm 帶透明不可行。詳見 4.1 節。
+*A2.* GIF 是唯一在 Element 全平台都會動的格式:Element Android 不支援 animated WebP(element-android#2695),而 ffmpeg 9 的 libvpx 預設 VP8 alpha 編碼被 `auto-alt-ref` 拒絕、webm 帶透明不可行。詳見 4.1 節。
 
 **Q3. `M_USER_LIMIT_EXCEEDED` 是什麼?會掉貼圖嗎?**
 *A3.* matrix.org 免費帳號的媒體配額用盡(量級見第 8 節第 1 條)。進程內會硬等退避重試;若 attempts 用盡該張放棄,會成為包裡的「洞」,之後由 `resume_holes.sh` / `probe_and_resume.sh` 補齊——**已寫入的張不會因此損壞**。
