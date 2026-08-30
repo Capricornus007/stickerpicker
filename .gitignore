@@ -12,3 +12,7 @@ web/lib/import-map.json
 *.session
 /*.json
 *.bak
+
+# local build artifacts and telethon journal
+/build
+*.session-journal

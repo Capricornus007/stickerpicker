@@ -15,16 +15,87 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from functools import partial
 from io import BytesIO
-import os.path
+import gzip
 import json
+import os
+import os.path
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 from PIL import Image
 
 from . import matrix
 
 open_utf8 = partial(open, encoding='UTF-8')
+
+# The magic bytes of EBML containers (Matroska/WebM)
+EBML_MAGIC = b"\x1a\x45\xdf\xa3"
+
+_empty_thumbnail = BytesIO()
+Image.new("RGBA", (128, 128), (0, 0, 0, 0)).save(_empty_thumbnail, "PNG")
+# Transparent placeholder for stickers that can't be thumbnailed (e.g. video without ffmpeg)
+EMPTY_THUMBNAIL = _empty_thumbnail.getvalue()
+
+
+def find_lottieconverter() -> Optional[str]:
+    path = os.environ.get("LOTTIECONVERTER") or shutil.which("lottieconverter")
+    if not path:
+        local = os.path.expanduser("~/.local/bin/lottieconverter")
+        if os.path.isfile(local):
+            path = local
+    return path
+
+
+def parse_tgs(data: bytes) -> Tuple[int, int, int]:
+    """Parse a .tgs (gzipped lottie) sticker and return its width, height and framerate."""
+    meta = json.loads(gzip.decompress(data))
+    return int(meta.get("w", 512)), int(meta.get("h", 512)), int(float(meta.get("fr", 30)))
+
+
+def convert_tgs(data: bytes, max_side: int = 256) -> Tuple[bytes, int, int]:
+    """Convert an animated .tgs (gzipped lottie) sticker into a looping transparent GIF
+    using lottieconverter (https://github.com/sot-tech/LottieConverter)."""
+    converter = find_lottieconverter()
+    if not converter:
+        raise RuntimeError("lottieconverter not found. It is required to import animated "
+                           "stickers. Install it or point the LOTTIECONVERTER environment "
+                           "variable at the binary.")
+    width, height, framerate = parse_tgs(data)
+    scale = min(1.0, max_side / max(width, height))
+    out_w, out_h = max(2, int(width * scale)), max(2, int(height * scale))
+    fps = min(25, framerate)
+    with tempfile.TemporaryDirectory() as tmp:
+        src_path = os.path.join(tmp, "sticker.tgs")
+        out_path = os.path.join(tmp, "sticker.gif")
+        with open(src_path, "wb") as src_file:
+            src_file.write(data)
+        proc = subprocess.run([converter, src_path, out_path, "gif",
+                               f"{out_w}x{out_h}", str(fps)], capture_output=True)
+        if proc.returncode != 0 or not os.path.isfile(out_path):
+            stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"lottieconverter failed: {stderr}")
+        with open(out_path, "rb") as out_file:
+            return out_file.read(), out_w, out_h
+
+
+def webm_thumbnail(data: bytes) -> Optional[bytes]:
+    """Extract the first frame of a WebM video sticker as PNG data using ffmpeg."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return None
+    with tempfile.TemporaryDirectory() as tmp:
+        src_path = os.path.join(tmp, "sticker.webm")
+        with open(src_path, "wb") as src_file:
+            src_file.write(data)
+        proc = subprocess.run([ffmpeg, "-loglevel", "error", "-i", src_path, "-frames:v", "1",
+                               "-f", "image2pipe", "-vcodec", "png", "-"], capture_output=True)
+        if proc.returncode == 0 and proc.stdout:
+            return proc.stdout
+    return None
+
 
 def convert_image(data: bytes, max_w=256, max_h=256) -> (bytes, int, int):
     image: Image.Image = Image.open(BytesIO(data)).convert("RGBA")
@@ -59,7 +130,7 @@ def add_to_index(name: str, output_dir: str) -> None:
 
 
 def make_sticker(mxc: str, width: int, height: int, size: int,
-                 body: str = "") -> matrix.StickerInfo:
+                 body: str = "", mimetype: str = "image/png") -> matrix.StickerInfo:
     return {
         "body": body,
         "url": mxc,
@@ -67,7 +138,7 @@ def make_sticker(mxc: str, width: int, height: int, size: int,
             "w": width,
             "h": height,
             "size": size,
-            "mimetype": "image/png",
+            "mimetype": mimetype,
 
             # Element iOS compatibility hack
             "thumbnail_url": mxc,
@@ -75,7 +146,7 @@ def make_sticker(mxc: str, width: int, height: int, size: int,
                 "w": width,
                 "h": height,
                 "size": size,
-                "mimetype": "image/png",
+                "mimetype": mimetype,
             },
         },
         "msgtype": "m.sticker",
@@ -86,9 +157,23 @@ def add_thumbnails(stickers: List[matrix.StickerInfo], stickers_data: Dict[str, 
     thumbnails = Path(output_dir, "thumbnails")
     thumbnails.mkdir(parents=True, exist_ok=True)
 
-    for sticker in stickers:       
-        image_data, _, _ = convert_image(stickers_data[sticker["url"]], 128, 128)
-        
+    for sticker in stickers:
+        data = stickers_data.get(sticker["url"])
+        if data is None:
+            # Sticker was already uploaded in a previous run, its thumbnail already exists
+            continue
+        try:
+            image_data, _, _ = convert_image(data, 128, 128)
+        except Exception:
+            if data[:4] == EBML_MAGIC:
+                frame = webm_thumbnail(data)
+                if frame:
+                    image_data, _, _ = convert_image(frame, 128, 128)
+                else:
+                    image_data = EMPTY_THUMBNAIL
+            else:
+                raise
+
         name = sticker["url"].split("/")[-1]
         thumbnail_path = thumbnails / name
         thumbnail_path.write_bytes(image_data)

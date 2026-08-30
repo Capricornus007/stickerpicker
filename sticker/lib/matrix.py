@@ -14,9 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, TYPE_CHECKING
+import asyncio
 import json
+import os
 
-from aiohttp import ClientSession
+from aiohttp import ClientError, ClientSession
 from yarl import URL
 
 access_token: Optional[str] = None
@@ -83,8 +85,41 @@ async def whoami(url: URL, access_token: str) -> str:
         return user_id
 
 
-async def upload(data: bytes, mimetype: str, filename: str) -> str:
+async def upload(data: bytes, mimetype: str, filename: str, max_attempts: int = None) -> str:
+    """Upload media and return its mxc URI. Rate limits, account media quota and
+    transient server/network errors are retried automatically."""
+    if max_attempts is None:
+        max_attempts = int(os.environ.get("STICKER_UPLOAD_ATTEMPTS", "6"))
     url = upload_url.with_query({"filename": filename})
     headers = {"Content-Type": mimetype, "Authorization": f"Bearer {access_token}"}
-    async with ClientSession() as sess, sess.post(url, data=data, headers=headers) as resp:
-        return (await resp.json())["content_uri"]
+    delay = 2
+    last_error = "unknown error"
+    for attempt in range(max_attempts):
+        status = 0
+        body = None
+        try:
+            async with ClientSession() as sess, sess.post(url, data=data, headers=headers) as resp:
+                status = resp.status
+                body = await resp.json(content_type=None)
+        except (ClientError, asyncio.TimeoutError, json.JSONDecodeError) as e:
+            last_error = f"network error: {e!r}"
+        if isinstance(body, dict):
+            if "content_uri" in body:
+                return body["content_uri"]
+            last_error = f"{status} {body.get('errcode', 'M_UNKNOWN')}: {body.get('error', '')}"
+            if status == 429 or body.get("errcode") == "M_LIMIT_EXCEEDED":
+                retry_after = body.get("retry_after_ms") or 1000
+                await asyncio.sleep(min(max(retry_after / 1000, 1), 120))
+            elif body.get("errcode") == "M_USER_LIMIT_EXCEEDED":
+                # The account's media quota for the current window is exhausted.
+                # Back off hard and let it refill instead of dropping the sticker.
+                await asyncio.sleep(min(30 * (2 ** attempt), 300))
+            elif status >= 500:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 60)
+            else:
+                break
+        else:
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60)
+    raise RuntimeError(f"Matrix upload failed after {attempt + 1} attempt(s): {last_error}")
