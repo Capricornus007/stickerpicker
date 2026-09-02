@@ -16,3 +16,11 @@ web/lib/import-map.json
 # local build artifacts and telethon journal
 /build
 *.session-journal
+
+# derived sync/verification state
+scripts/msc2545-state.json
+scripts/tg-live-state.json
+# local run logs
+*.log
+# room sync runtime state
+scripts/msc2545-room-state.json
