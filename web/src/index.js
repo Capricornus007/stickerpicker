@@ -395,7 +395,11 @@ const Pack = ({pack, send}) => html`
 
 const Sticker = ({content, send}) => html`
 	<div class="sticker" onClick=${send} data-sticker-id=${content.id}>
-		<img data-src=${makeThumbnailURL(content.url)} alt=${content.body} title=${content.body}/>
+		${content.info && content.info.mimetype === "video/webm" ? html`
+			<video data-src=${makeThumbnailURL(content.url)} alt=${content.body} title=${content.body} autoplay loop muted playsinline/>
+		` : html`
+			<img data-src=${makeThumbnailURL(content.url)} alt=${content.body} title=${content.body}/>
+		`}
 	</div>
 `
 
