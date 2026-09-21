@@ -62,6 +62,7 @@ def build_pack_content(short: str, pack: dict) -> tuple[dict, int]:
     first_url = next(iter(images.values()))["url"] if images else None
     content = {
         "pack": {"display_name": pack.get("title") or short},
+        "usage": ["sticker"],
         "images": images,
     }
     if first_url:
